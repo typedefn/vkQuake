@@ -153,6 +153,7 @@ typedef struct
 	qboolean							get_surface_capabilities_2;
 	qboolean							get_physical_device_properties_2;
 	qboolean							vulkan_1_1_available;
+	qboolean							vulkan_1_2_available;
 
 	// Device extensions
 	qboolean							dedicated_allocation;

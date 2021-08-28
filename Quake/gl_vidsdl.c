@@ -626,13 +626,19 @@ static void GL_InitInstance( void )
 	}
 
 	vulkan_globals.vulkan_1_1_available = false;
+	vulkan_globals.vulkan_1_2_available = false;
 	fpGetInstanceProcAddr = SDL_Vulkan_GetVkGetInstanceProcAddr();
 	GET_INSTANCE_PROC_ADDR(EnumerateInstanceVersion);
 	if (fpEnumerateInstanceVersion)
 	{
 		uint32_t api_version = 0;
 		fpEnumerateInstanceVersion(&api_version);
-		if (api_version >= VK_MAKE_VERSION(1, 1, 0))
+		if (api_version >= VK_MAKE_VERSION(1, 2, 0))
+		{
+			Con_Printf("Using Vulkan 1.2\n");
+			vulkan_globals.vulkan_1_2_available = true;
+		}
+		else if (api_version >= VK_MAKE_VERSION(1, 1, 0))
 		{
 			Con_Printf("Using Vulkan 1.1\n");
 			vulkan_globals.vulkan_1_1_available = true;
@@ -646,7 +652,7 @@ static void GL_InitInstance( void )
 	application_info.applicationVersion = 1;
 	application_info.pEngineName = "vkQuake";
 	application_info.engineVersion = 1;
-	application_info.apiVersion = vulkan_globals.vulkan_1_1_available ? VK_MAKE_VERSION(1, 1, 0) : VK_MAKE_VERSION(1, 0, 0);
+	application_info.apiVersion = vulkan_globals.vulkan_1_2_available ? VK_MAKE_VERSION(1, 2, 0) : VK_MAKE_VERSION(1, 1, 0);
 
 	VkInstanceCreateInfo instance_create_info;
 	memset(&instance_create_info, 0, sizeof(instance_create_info));
@@ -873,9 +879,14 @@ static void GL_InitDevice( void )
 
 		vulkan_physical_device_features = physical_device_features_2.features;
 	}
-	else
+//	else
 #endif
-		vkGetPhysicalDeviceFeatures(vulkan_physical_device, &vulkan_physical_device_features);
+
+                VkPhysicalDeviceFeatures2 features2;
+                memset(&features2, 0, sizeof(features2));
+                features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+                features2.pNext = &vulkan_physical_device_features; 
+
 
 #if defined(VK_EXT_subgroup_size_control)
 	vulkan_globals.screen_effects_sops =
@@ -894,7 +905,7 @@ static void GL_InitDevice( void )
 		Con_Printf("Using subgroup operations\n");
 #endif
 
-	const char * device_extensions[5] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+	const char * device_extensions[8] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 	uint32_t numEnabledExtensions = 1;
 	if (vulkan_globals.dedicated_allocation) {
 		device_extensions[ numEnabledExtensions++ ] = VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME;
@@ -910,6 +921,23 @@ static void GL_InitDevice( void )
 	}
 #endif
 
+
+	// #VKRay: Activate the ray tracing extension
+	VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeature;
+	memset(&accelFeature, 0, sizeof(accelFeature));
+	accelFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+
+
+        VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature;
+	memset(&rtPipelineFeature, 0, sizeof(rtPipelineFeature));
+        rtPipelineFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+  
+        accelFeature.pNext = &rtPipelineFeature;
+
+        device_extensions[ numEnabledExtensions++ ] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
+        device_extensions[ numEnabledExtensions++ ] = VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME;
+        device_extensions[ numEnabledExtensions++ ] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
+        
 	const VkBool32 extended_format_support = vulkan_physical_device_features.shaderStorageImageExtendedFormats;
 	const VkBool32 sampler_anisotropic = vulkan_physical_device_features.samplerAnisotropy;
 
@@ -922,6 +950,13 @@ static void GL_InitDevice( void )
 
 	vulkan_globals.non_solid_fill = (device_features.fillModeNonSolid == VK_TRUE) ? true : false;
 
+        features2.features = device_features;
+        features2.pNext = &accelFeature;
+
+        vkGetPhysicalDeviceFeatures2(vulkan_physical_device, &features2);
+
+
+
 	VkDeviceCreateInfo device_create_info;
 	memset(&device_create_info, 0, sizeof(device_create_info));
 	device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -932,7 +967,8 @@ static void GL_InitDevice( void )
 	device_create_info.pQueueCreateInfos = &queue_create_info;
 	device_create_info.enabledExtensionCount = numEnabledExtensions;
 	device_create_info.ppEnabledExtensionNames = device_extensions;
-	device_create_info.pEnabledFeatures = &device_features;
+	device_create_info.pEnabledFeatures = NULL;
+        device_create_info.pNext = &features2;
 
 	err = vkCreateDevice(vulkan_physical_device, &device_create_info, NULL, &vulkan_globals.device);
 	if (err != VK_SUCCESS)
