@@ -7,6 +7,11 @@
 
 uint32_t queue_index;
 
+typedef struct accel_khr_s {
+  VkAccelerationStructureKHR accel;
+  VkBuffer buffer;
+} accel_khr_t;
+
 typedef struct blasinput_s {
   VkAccelerationStructureGeometryKHR as_geometry[MAX_VK_GEOMETRY];
   VkAccelerationStructureBuildRangeInfoKHR as_build_offset_info[MAX_VK_GEOMETRY];
@@ -18,10 +23,11 @@ typedef struct buffer_s {
   VkBuffer buffer;
 } buffer_t;
 
-typedef struct accel_khr_s {
-  VkAccelerationStructureKHR accel;
-  VkBuffer buffer;
-} accel_khr_t;
+typedef struct rtx_s {
+  VkDeviceMemory vertexPositionBufferMemory;
+  VkBuffer vertexPositionBuffer;
+  VkCommandPool commandPool;
+} rtx_t;
 
 typedef struct build_acceleration_structure_s {
   VkAccelerationStructureBuildGeometryInfoKHR build_info;
@@ -48,20 +54,14 @@ typedef struct mem_info_s {
 extern blasinput_t blas_inputs;
 extern blasinput_t *all_blas;
 
-int has_flag(VkFlags item, VkFlags flag) {
-  return (item & flag) == flag;
-}
-
-void createAcceleration(VkAccelerationStructureCreateInfoNV *accel_,
-    VkAccelerationStructureNV *result_accel);
 void VK_Init();
 void VK_Destroy();
-VkDeviceAddress Get_Buffer_Device_Address(VkDevice device, VkBuffer buffer);
-//mem_props = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-struct buffer_s Create_Buffer(VkDeviceSize size, const void *data,
-    VkBufferUsageFlags usage, VkMemoryPropertyFlags mem_props);
-void Object_To_VkGeometryKHR(qmodel_t *m, const aliashdr_t *hdr);
-void Build_Blas(VkBuildAccelerationStructureFlagsKHR flags);
+void createCommandPool();
+
+void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size,
+    int copy_offset);
+
+void createVertexBuffer(qmodel_t *m, const aliashdr_t *hdr);
 
 #endif
 

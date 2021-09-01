@@ -151,9 +151,6 @@ static PFN_vkAcquireNextImageKHR fpAcquireNextImageKHR;
 static PFN_vkQueuePresentKHR fpQueuePresentKHR;
 static PFN_vkEnumerateInstanceVersion fpEnumerateInstanceVersion;
 PFN_vkGetAccelerationStructureBuildSizesKHR fpGetAccelerationStructureBuildSizesKHR;
-PFN_vkCreateAccelerationStructureNV fpCreateAccelerationStructureNV;
-PFN_vkGetAccelerationStructureMemoryRequirementsNV fpGetAccelerationStructureMemoryRequirementsNV;
-PFN_vkBindAccelerationStructureMemoryNV fpBindAccelerationStructureMemoryNV;
 
 #if defined(VK_EXT_full_screen_exclusive)
 static PFN_vkAcquireFullScreenExclusiveModeEXT fpAcquireFullScreenExclusiveModeEXT;
@@ -926,22 +923,30 @@ static void GL_InitDevice( void )
 	}
 #endif
 
+  // #VKRay: Activate the ray tracing extension
+  VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeature;
+  memset(&accelFeature, 0, sizeof(accelFeature));
+  accelFeature.sType =
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+  accelFeature.accelerationStructure = VK_TRUE;
+  accelFeature.accelerationStructureCaptureReplay = VK_TRUE;
+  accelFeature.accelerationStructureIndirectBuild = VK_FALSE;
+  accelFeature.accelerationStructureHostCommands = VK_FALSE;
+  accelFeature.descriptorBindingAccelerationStructureUpdateAfterBind = VK_FALSE;
 
-	// #VKRay: Activate the ray tracing extension
-	VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeature;
-	memset(&accelFeature, 0, sizeof(accelFeature));
-	accelFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+  VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature;
+  memset(&rtPipelineFeature, 0, sizeof(rtPipelineFeature));
+  rtPipelineFeature.sType =
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+  rtPipelineFeature.rayTracingPipeline = VK_TRUE;
+  accelFeature.pNext = &rtPipelineFeature;
 
-
-        VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature;
-	memset(&rtPipelineFeature, 0, sizeof(rtPipelineFeature));
-        rtPipelineFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
-  
-        accelFeature.pNext = &rtPipelineFeature;
-
-        device_extensions[ numEnabledExtensions++ ] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
-        device_extensions[ numEnabledExtensions++ ] = VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME;
-        device_extensions[ numEnabledExtensions++ ] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
+  device_extensions[numEnabledExtensions++] =
+      VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
+  device_extensions[numEnabledExtensions++] =
+      VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME;
+  device_extensions[numEnabledExtensions++] =
+      VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
         
 	const VkBool32 extended_format_support = vulkan_physical_device_features.shaderStorageImageExtendedFormats;
 	const VkBool32 sampler_anisotropic = vulkan_physical_device_features.samplerAnisotropy;
@@ -985,9 +990,7 @@ static void GL_InitDevice( void )
 	GET_DEVICE_PROC_ADDR(AcquireNextImageKHR);
 	GET_DEVICE_PROC_ADDR(QueuePresentKHR);
 	GET_DEVICE_PROC_ADDR(GetAccelerationStructureBuildSizesKHR);
-	GET_DEVICE_PROC_ADDR(CreateAccelerationStructureNV);
-	GET_DEVICE_PROC_ADDR(GetAccelerationStructureMemoryRequirementsNV);
-	GET_DEVICE_PROC_ADDR(BindAccelerationStructureMemoryNV);
+
 
 	for (i = 0; i < numEnabledExtensions; ++i)
 		Con_Printf("Using %s\n", device_extensions[i]);
@@ -1789,7 +1792,7 @@ static qboolean GL_CreateSwapChain( void )
 	swapchain_create_info.imageColorSpace = swap_chain_color_space;
 	swapchain_create_info.imageExtent.width = vid.width;
 	swapchain_create_info.imageExtent.height = vid.height;
-	swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	swapchain_create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 	swapchain_create_info.imageArrayLayers = 1;
 	swapchain_create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;

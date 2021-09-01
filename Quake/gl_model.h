@@ -503,6 +503,11 @@ typedef struct qmodel_s
 	int				vboxyzofs;      // offset in vbo of hdr->numposes*hdr->numverts_vbo meshxyz_t
 	int				vbostofs;       // offset in vbo of hdr->numverts_vbo meshst_t
 
+
+	VkDeviceMemory indexBufferMemory;
+
+  VkDeviceMemory vertexPositionBufferMemory;
+
 //
 // additional model data
 //
