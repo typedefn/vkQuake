@@ -150,6 +150,11 @@ static PFN_vkGetSwapchainImagesKHR fpGetSwapchainImagesKHR;
 static PFN_vkAcquireNextImageKHR fpAcquireNextImageKHR;
 static PFN_vkQueuePresentKHR fpQueuePresentKHR;
 static PFN_vkEnumerateInstanceVersion fpEnumerateInstanceVersion;
+PFN_vkGetAccelerationStructureBuildSizesKHR fpGetAccelerationStructureBuildSizesKHR;
+PFN_vkCreateAccelerationStructureNV fpCreateAccelerationStructureNV;
+PFN_vkGetAccelerationStructureMemoryRequirementsNV fpGetAccelerationStructureMemoryRequirementsNV;
+PFN_vkBindAccelerationStructureMemoryNV fpBindAccelerationStructureMemoryNV;
+
 #if defined(VK_EXT_full_screen_exclusive)
 static PFN_vkAcquireFullScreenExclusiveModeEXT fpAcquireFullScreenExclusiveModeEXT;
 static PFN_vkReleaseFullScreenExclusiveModeEXT fpReleaseFullScreenExclusiveModeEXT;
@@ -979,6 +984,10 @@ static void GL_InitDevice( void )
 	GET_DEVICE_PROC_ADDR(GetSwapchainImagesKHR);
 	GET_DEVICE_PROC_ADDR(AcquireNextImageKHR);
 	GET_DEVICE_PROC_ADDR(QueuePresentKHR);
+	GET_DEVICE_PROC_ADDR(GetAccelerationStructureBuildSizesKHR);
+	GET_DEVICE_PROC_ADDR(CreateAccelerationStructureNV);
+	GET_DEVICE_PROC_ADDR(GetAccelerationStructureMemoryRequirementsNV);
+	GET_DEVICE_PROC_ADDR(BindAccelerationStructureMemoryNV);
 
 	for (i = 0; i < numEnabledExtensions; ++i)
 		Con_Printf("Using %s\n", device_extensions[i]);
