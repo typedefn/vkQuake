@@ -27,6 +27,21 @@ typedef struct rtx_s {
   VkDeviceMemory vertexPositionBufferMemory;
   VkBuffer vertexPositionBuffer;
   VkCommandPool commandPool;
+
+
+  VkImageView rayTraceImageView;
+  VkImage rayTraceImage;
+  VkDeviceMemory rayTraceImageMemory;
+
+  VkAccelerationStructureKHR bottomLevelAccelerationStructure;
+  VkBuffer bottomLevelAccelerationStructureBuffer;
+  VkDeviceMemory bottomLevelAccelerationStructureBufferMemory;
+
+  VkAccelerationStructureKHR topLevelAccelerationStructure;
+  VkBuffer topLevelAccelerationStructureBuffer;
+  VkDeviceMemory topLevelAccelerationStructureBufferMemory;
+
+
 } rtx_t;
 
 typedef struct build_acceleration_structure_s {

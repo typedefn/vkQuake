@@ -12,6 +12,10 @@ void VK_Init() {
 }
 
 void VK_Destroy() {
+  vkDestroyImageView(vulkan_globals.device, rtx.rayTraceImageView, NULL);
+  vkFreeMemory(vulkan_globals.device, rtx.rayTraceImageMemory, NULL);
+  vkDestroyImage(vulkan_globals.device, rtx.rayTraceImage, NULL);
+  vkDestroyCommandPool(vulkan_globals.device, rtx.commandPool, NULL);
 
 }
 
@@ -112,7 +116,6 @@ void createBuffer(VkDeviceSize size, VkBufferUsageFlags usageFlags,
 
 void createVertexBuffer(qmodel_t *m, const aliashdr_t *hdr) {
   int totalvbosize = 0;
-  totalvbosize += (hdr->numposes * hdr->numverts_vbo * sizeof(meshxyz_t)); // ericw -- what RMQEngine called nummeshframes is called numposes in QuakeSpasm
   byte *vbodata;
   const trivertx_t *trivertexes;
   const aliasmesh_t *desc;
@@ -207,6 +210,7 @@ void createVertexBuffer(qmodel_t *m, const aliashdr_t *hdr) {
     remaining_size -= size_to_copy;
   }
 
+  free (vbodata);
   vkDestroyBuffer(vulkan_globals.device, positionStagingBuffer, NULL);
   vkFreeMemory(vulkan_globals.device, positionStagingBufferMemory, NULL);
 }
@@ -277,16 +281,10 @@ void createIndexBuffer(qmodel_t *m, const aliashdr_t *hdr) {
   m->vboindexofs = 0;
 
   m->vboxyzofs = 0;
-  totalvbosize += (hdr->numposes * hdr->numverts_vbo * sizeof(meshxyz_t));
-
-  m->vbostofs = totalvbosize;
-  totalvbosize += (hdr->numverts_vbo * sizeof(meshst_t));
 
   if (isDedicated)
     return;
   if (!hdr->numindexes)
-    return;
-  if (!totalvbosize)
     return;
 
   // grab the pointers to data in the extradata
@@ -294,9 +292,6 @@ void createIndexBuffer(qmodel_t *m, const aliashdr_t *hdr) {
   desc = (aliasmesh_t*) ((byte*) hdr + hdr->meshdesc);
   indexes = (short*) ((byte*) hdr + hdr->indexes);
   trivertexes = (trivertx_t*) ((byte*) hdr + hdr->vertexes);
-
-  vbodata = (byte *) malloc(totalvbosize);
-  memset(vbodata, 0, totalvbosize);
 
   VkDeviceSize bufferSize = hdr->numindexes * sizeof(unsigned short);
 
@@ -338,4 +333,219 @@ void createIndexBuffer(qmodel_t *m, const aliashdr_t *hdr) {
 
   vkDestroyBuffer(vulkan_globals.device, stagingBuffer, NULL);
   vkFreeMemory(vulkan_globals.device, stagingBufferMemory, NULL);
+}
+
+
+void createTextures() {
+  createImage(800, 600, vulkan_globals.swap_chain_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &rtx.rayTraceImage, &rtx.rayTraceImageMemory);
+
+  VkImageSubresourceRange subresourceRange = {};
+  subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  subresourceRange.baseMipLevel = 0;
+  subresourceRange.levelCount = 1;
+  subresourceRange.baseArrayLayer = 0;
+  subresourceRange.layerCount = 1;
+
+  VkImageViewCreateInfo imageViewCreateInfo = {};
+  imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  imageViewCreateInfo.pNext = NULL;
+  imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  imageViewCreateInfo.format = vulkan_globals.swap_chain_format;
+  imageViewCreateInfo.subresourceRange = subresourceRange;
+  imageViewCreateInfo.image = rtx.rayTraceImage;
+
+  if (vkCreateImageView(vulkan_globals.device, &imageViewCreateInfo, NULL, &rtx.rayTraceImageView) != VK_SUCCESS) {
+    Sys_Error("Could not vkCreateImageView()");
+        return;
+  }
+
+  VkImageMemoryBarrier imageMemoryBarrier = {};
+  imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  imageMemoryBarrier.pNext = NULL;
+  imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+  imageMemoryBarrier.image = rtx.rayTraceImage;
+  imageMemoryBarrier.subresourceRange = subresourceRange;
+  imageMemoryBarrier.srcAccessMask = 0;
+  imageMemoryBarrier.dstAccessMask = 0;
+
+  VkCommandBufferAllocateInfo bufferAllocateInfo = {};
+  bufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  bufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  bufferAllocateInfo.commandPool = rtx.commandPool;
+  bufferAllocateInfo.commandBufferCount = 1;
+
+  VkCommandBuffer commandBuffer;
+  vkAllocateCommandBuffers(vulkan_globals.device, &bufferAllocateInfo, &commandBuffer);
+
+  VkCommandBufferBeginInfo commandBufferBeginInfo = {};
+  commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+  vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo);
+  vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &imageMemoryBarrier);
+  vkEndCommandBuffer(commandBuffer);
+
+  VkSubmitInfo submitInfo = {};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = &commandBuffer;
+
+  vkQueueSubmit(vulkan_globals.queue, 1, &submitInfo, VK_NULL_HANDLE);
+  vkQueueWaitIdle(vulkan_globals.queue);
+
+  vkFreeCommandBuffers(vulkan_globals.device, rtx.commandPool, 1, &commandBuffer);
+}
+
+
+void createBottomLevelAccelerationStructure(qmodel_t *m, const aliashdr_t *hdr) {
+  PFN_vkGetAccelerationStructureBuildSizesKHR pvkGetAccelerationStructureBuildSizesKHR = (PFN_vkGetAccelerationStructureBuildSizesKHR)vkGetDeviceProcAddr(vulkan_globals.device, "vkGetAccelerationStructureBuildSizesKHR");
+  PFN_vkCreateAccelerationStructureKHR pvkCreateAccelerationStructureKHR = (PFN_vkCreateAccelerationStructureKHR)vkGetDeviceProcAddr(vulkan_globals.device, "vkCreateAccelerationStructureKHR");
+  PFN_vkGetBufferDeviceAddressKHR pvkGetBufferDeviceAddressKHR = (PFN_vkGetBufferDeviceAddressKHR)vkGetDeviceProcAddr(vulkan_globals.device, "vkGetBufferDeviceAddressKHR");
+  PFN_vkCmdBuildAccelerationStructuresKHR pvkCmdBuildAccelerationStructuresKHR = (PFN_vkCmdBuildAccelerationStructuresKHR)vkGetDeviceProcAddr(vulkan_globals.device, "vkCmdBuildAccelerationStructuresKHR");
+
+  VkBufferDeviceAddressInfo vertexBufferDeviceAddressInfo = {};
+  vertexBufferDeviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+  vertexBufferDeviceAddressInfo.buffer = m->vertex_buffer;
+
+  VkDeviceAddress vertexBufferAddress = pvkGetBufferDeviceAddressKHR(vulkan_globals.device, &vertexBufferDeviceAddressInfo);
+
+  VkDeviceOrHostAddressConstKHR vertexDeviceOrHostAddressConst = {};
+  vertexDeviceOrHostAddressConst.deviceAddress = vertexBufferAddress;
+
+  VkBufferDeviceAddressInfo indexBufferDeviceAddressInfo = {};
+  indexBufferDeviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+  indexBufferDeviceAddressInfo.buffer = m->index_buffer;
+
+  VkDeviceAddress indexBufferAddress = pvkGetBufferDeviceAddressKHR(vulkan_globals.device, &indexBufferDeviceAddressInfo);
+
+  VkDeviceOrHostAddressConstKHR indexDeviceOrHostAddressConst = {};
+  indexDeviceOrHostAddressConst.deviceAddress = indexBufferAddress;
+
+  VkAccelerationStructureGeometryTrianglesDataKHR accelerationStructureGeometryTrianglesData = {
+    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR,
+    .pNext = NULL,
+    .vertexFormat = VK_FORMAT_R32G32B32_SFLOAT,
+    .vertexData = vertexDeviceOrHostAddressConst,
+    .vertexStride = sizeof(float) * 3,
+    .maxVertex = hdr->numverts,
+    .indexType = VK_INDEX_TYPE_UINT32,
+    .indexData = indexDeviceOrHostAddressConst,
+    .transformData = (VkDeviceOrHostAddressConstKHR){}
+  };
+
+  VkAccelerationStructureGeometryDataKHR accelerationStructureGeometryData = {
+    .triangles = accelerationStructureGeometryTrianglesData
+  };
+
+  VkAccelerationStructureGeometryKHR accelerationStructureGeometry = {
+    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+    .pNext = NULL,
+    .geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR,
+    .geometry = accelerationStructureGeometryData,
+    .flags = VK_GEOMETRY_OPAQUE_BIT_KHR
+  };
+
+  VkAccelerationStructureBuildGeometryInfoKHR accelerationStructureBuildGeometryInfo = {
+    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
+    .pNext = NULL,
+    .type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+    .flags = 0,
+    .mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
+    .srcAccelerationStructure = VK_NULL_HANDLE,
+    .dstAccelerationStructure = VK_NULL_HANDLE,
+    .geometryCount = 1,
+    .pGeometries = &accelerationStructureGeometry,
+    .ppGeometries = NULL,
+    .scratchData = {}
+  };
+
+  VkAccelerationStructureBuildSizesInfoKHR accelerationStructureBuildSizesInfo = {
+    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
+    .pNext = NULL,
+    .accelerationStructureSize = 0,
+    .updateScratchSize = 0,
+    .buildScratchSize = 0
+  };
+
+  pvkGetAccelerationStructureBuildSizesKHR(vulkan_globals.device,
+                                           VK_ACCELERATION_STRUCTURE_BUILD_TYPE_HOST_KHR,
+                                           &accelerationStructureBuildGeometryInfo,
+                                           &accelerationStructureBuildGeometryInfo.geometryCount,
+                                           &accelerationStructureBuildSizesInfo);
+
+  createBuffer(accelerationStructureBuildSizesInfo.accelerationStructureSize,  VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &rtx.bottomLevelAccelerationStructureBuffer, &rtx.bottomLevelAccelerationStructureBufferMemory);
+
+  VkBuffer scratchBuffer;
+  VkDeviceMemory scratchBufferMemory;
+  createBuffer(accelerationStructureBuildSizesInfo.buildScratchSize,
+               VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+               &scratchBuffer,
+               &scratchBufferMemory);
+
+
+  VkBufferDeviceAddressInfo scratchBufferDeviceAddressInfo = {};
+  scratchBufferDeviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+  scratchBufferDeviceAddressInfo.buffer = scratchBuffer;
+
+  VkDeviceAddress scratchBufferAddress = pvkGetBufferDeviceAddressKHR(vulkan_globals.device, &scratchBufferDeviceAddressInfo);
+
+  VkDeviceOrHostAddressKHR scratchDeviceOrHostAddress = {};
+  scratchDeviceOrHostAddress.deviceAddress = scratchBufferAddress;
+
+  accelerationStructureBuildGeometryInfo.scratchData = scratchDeviceOrHostAddress;
+
+  VkAccelerationStructureCreateInfoKHR accelerationStructureCreateInfo = {
+    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+    .pNext = NULL,
+    .createFlags = 0,
+    .buffer = rtx.bottomLevelAccelerationStructureBuffer,
+    .offset = 0,
+    .size = accelerationStructureBuildSizesInfo.accelerationStructureSize,
+    .type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+    .deviceAddress = 0
+  };
+
+  pvkCreateAccelerationStructureKHR(vulkan_globals.device, &accelerationStructureCreateInfo, NULL, &rtx.bottomLevelAccelerationStructure);
+
+  accelerationStructureBuildGeometryInfo.dstAccelerationStructure = rtx.bottomLevelAccelerationStructure;
+
+  const VkAccelerationStructureBuildRangeInfoKHR* accelerationStructureBuildRangeInfo = &(VkAccelerationStructureBuildRangeInfoKHR){
+    .primitiveCount = hdr->numtris,
+    .primitiveOffset = 0,
+    .firstVertex = 0,
+    .transformOffset = 0
+  };
+  const VkAccelerationStructureBuildRangeInfoKHR** accelerationStructureBuildRangeInfos = &accelerationStructureBuildRangeInfo;
+
+  VkCommandBufferAllocateInfo bufferAllocateInfo = {};
+  bufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  bufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  bufferAllocateInfo.commandPool = rtx.commandPool;
+  bufferAllocateInfo.commandBufferCount = 1;
+
+  VkCommandBuffer commandBuffer;
+  vkAllocateCommandBuffers(vulkan_globals.device, &bufferAllocateInfo, &commandBuffer);
+
+  VkCommandBufferBeginInfo commandBufferBeginInfo = {};
+  commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+  vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo);
+  pvkCmdBuildAccelerationStructuresKHR(commandBuffer, 1, &accelerationStructureBuildGeometryInfo, accelerationStructureBuildRangeInfos);
+  vkEndCommandBuffer(commandBuffer);
+
+  VkSubmitInfo submitInfo = {};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = &commandBuffer;
+
+  vkQueueSubmit(vulkan_globals.queue, 1, &submitInfo, VK_NULL_HANDLE);
+  vkQueueWaitIdle(vulkan_globals.queue);
+
+  vkFreeCommandBuffers(vulkan_globals.device, rtx.commandPool, 1, &commandBuffer);
+
+  vkDestroyBuffer(vulkan_globals.device, scratchBuffer, NULL);
+  vkFreeMemory(vulkan_globals.device, scratchBufferMemory, NULL);
 }
