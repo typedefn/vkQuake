@@ -5,6 +5,7 @@ Quake/*.dll
 Quake/*.o
 Quake/history.txt
 Quake/id1/
+Quake/Id1/
 Quake/vkquake
 Quake/vkQuake.exe
 Quake/vkQuake.res

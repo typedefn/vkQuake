@@ -28,7 +28,6 @@ typedef struct rtx_s {
   VkBuffer vertexPositionBuffer;
   VkCommandPool commandPool;
 
-
   VkImageView rayTraceImageView;
   VkImage rayTraceImage;
   VkDeviceMemory rayTraceImageMemory;
@@ -40,7 +39,6 @@ typedef struct rtx_s {
   VkAccelerationStructureKHR topLevelAccelerationStructure;
   VkBuffer topLevelAccelerationStructureBuffer;
   VkDeviceMemory topLevelAccelerationStructureBufferMemory;
-
 
 } rtx_t;
 
@@ -73,9 +71,9 @@ void VK_Init();
 void VK_Destroy();
 void createCommandPool();
 
-void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size,
-    int copy_offset);
-
+void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size, int copy_offset);
+void createBuffer(VkDeviceSize size, VkBufferUsageFlags usageFlags,
+    VkMemoryPropertyFlags propertyFlags, VkBuffer *buffer, VkDeviceMemory *bufferMemory);
 void createVertexBuffer(qmodel_t *m, const aliashdr_t *hdr);
 
 #endif
