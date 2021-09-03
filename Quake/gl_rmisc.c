@@ -25,6 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "float.h"
+#include "vk_rt.h"
 
 #if defined(SDL_FRAMEWORK) || defined(NO_SDL_CONFIG)
 #include <SDL2/SDL.h>
@@ -48,6 +49,7 @@ extern cvar_t r_lerpmove;
 extern cvar_t r_nolerp_list;
 //johnfitz
 extern cvar_t gl_zfix; // QuakeSpasm z-fighting fix
+extern rtx_t rtx;
 
 #if defined(USE_SIMD)
 extern cvar_t r_simd;
@@ -1448,8 +1450,11 @@ static VkShaderModule R_CreateShaderModule(byte *code, int size, const char * na
 
 	VkShaderModule module;
 	VkResult err = vkCreateShaderModule(vulkan_globals.device, &module_create_info, NULL, &module);
-	if (err != VK_SUCCESS)
-		Sys_Error("vkCreateShaderModule failed");
+	if (err != VK_SUCCESS) {
+	  char buf[256];
+	  snprintf(buf, 256, "vkCreateShaderModule failed %s", name);
+		Sys_Error(buf);
+	}
 
 	GL_SetObjectName((uint64_t)module, VK_OBJECT_TYPE_SHADER_MODULE, name);
 
@@ -2239,6 +2244,144 @@ void R_CreatePipelines()
 	if (err != VK_SUCCESS)
 		Sys_Error("vkCreateComputePipelines failed");
 	GL_SetObjectName((uint64_t)vulkan_globals.cs_tex_warp_pipeline.handle, VK_OBJECT_TYPE_PIPELINE, "cs_tex_warp");
+
+  //=========================
+	// Ray tracing pipeline....
+	//=========================
+  createUniformBuffer();
+	createDescriptorSets();
+
+  PFN_vkCreateRayTracingPipelinesKHR pvkCreateRayTracingPipelinesKHR = (PFN_vkCreateRayTracingPipelinesKHR)vkGetDeviceProcAddr(vulkan_globals.device, "vkCreateRayTracingPipelinesKHR");
+
+	size_t rgenFileSize;
+	size_t rmissFileSize;
+	size_t rmissShadowFileSize;
+	size_t rchitFileSize;
+
+	byte * rgenFileBuffer = readFile("shaders\\raytrace.rgen.spv", &rgenFileSize);
+	byte * rmissFileBuffer = readFile("shaders\\raytrace.rmiss.spv", &rmissFileSize);
+	byte * rmissShadowFileBuffer = readFile("shaders\\raytrace_shadow.rmiss.spv", &rmissShadowFileSize);
+	byte * rchitFileBuffer = readFile("shaders\\raytrace.rchit.spv", &rchitFileSize);
+
+  VkShaderModule rgenShaderModule = R_CreateShaderModule(rgenFileBuffer, rgenFileSize, "raytrace.rgen.spv");
+  VkShaderModule rmissShaderModule = R_CreateShaderModule(rgenFileBuffer, rgenFileSize, "raytrace.rmiss.spv");
+  VkShaderModule rmissShadowShaderModule = R_CreateShaderModule(rgenFileBuffer, rgenFileSize, "raytrace_shadow.rmiss.spv");
+  VkShaderModule rchitShaderModule = R_CreateShaderModule(rgenFileBuffer, rgenFileSize, "raytrace.rchit.spv");
+
+  VkPipelineShaderStageCreateInfo rgenShaderStageInfo = { };
+  rgenShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  rgenShaderStageInfo.stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+  rgenShaderStageInfo.module = rgenShaderModule;
+  rgenShaderStageInfo.pName = "main";
+
+  VkPipelineShaderStageCreateInfo rmissShaderStageInfo = { };
+  rmissShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  rmissShaderStageInfo.stage = VK_SHADER_STAGE_MISS_BIT_KHR;
+  rmissShaderStageInfo.module = rmissShaderModule;
+  rmissShaderStageInfo.pName = "main";
+
+  VkPipelineShaderStageCreateInfo rmissShadowShaderStageInfo = { };
+  rmissShadowShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  rmissShadowShaderStageInfo.stage = VK_SHADER_STAGE_MISS_BIT_KHR;
+  rmissShadowShaderStageInfo.module = rmissShadowShaderModule;
+  rmissShadowShaderStageInfo.pName = "main";
+
+  VkPipelineShaderStageCreateInfo rchitShaderStageInfo = { };
+  rchitShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  rchitShaderStageInfo.stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+  rchitShaderStageInfo.module = rchitShaderModule;
+  rchitShaderStageInfo.pName = "main";
+
+  VkPipelineShaderStageCreateInfo shaderStages[4] = { rgenShaderStageInfo, rmissShaderStageInfo,
+      rmissShadowShaderStageInfo, rchitShaderStageInfo };
+
+  VkRayTracingShaderGroupCreateInfoKHR shaderGroupCreateInfos[4];
+  shaderGroupCreateInfos[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+  shaderGroupCreateInfos[0].pNext = NULL;
+  shaderGroupCreateInfos[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+  shaderGroupCreateInfos[0].generalShader = 0;
+  shaderGroupCreateInfos[0].closestHitShader = VK_SHADER_UNUSED_KHR;
+  shaderGroupCreateInfos[0].anyHitShader = VK_SHADER_UNUSED_KHR;
+  shaderGroupCreateInfos[0].intersectionShader = VK_SHADER_UNUSED_KHR;
+  shaderGroupCreateInfos[0].pShaderGroupCaptureReplayHandle = NULL;
+
+  shaderGroupCreateInfos[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+  shaderGroupCreateInfos[1].pNext = NULL;
+  shaderGroupCreateInfos[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+  shaderGroupCreateInfos[1].generalShader = 1;
+  shaderGroupCreateInfos[1].closestHitShader = VK_SHADER_UNUSED_KHR;
+  shaderGroupCreateInfos[1].anyHitShader = VK_SHADER_UNUSED_KHR;
+  shaderGroupCreateInfos[1].intersectionShader = VK_SHADER_UNUSED_KHR;
+  shaderGroupCreateInfos[1].pShaderGroupCaptureReplayHandle = NULL;
+
+  shaderGroupCreateInfos[2].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+  shaderGroupCreateInfos[2].pNext = NULL;
+  shaderGroupCreateInfos[2].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+  shaderGroupCreateInfos[2].generalShader = 2;
+  shaderGroupCreateInfos[2].closestHitShader = VK_SHADER_UNUSED_KHR;
+  shaderGroupCreateInfos[2].anyHitShader = VK_SHADER_UNUSED_KHR;
+  shaderGroupCreateInfos[2].intersectionShader = VK_SHADER_UNUSED_KHR;
+  shaderGroupCreateInfos[2].pShaderGroupCaptureReplayHandle = NULL;
+
+  shaderGroupCreateInfos[3].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+  shaderGroupCreateInfos[3].pNext = NULL;
+  shaderGroupCreateInfos[3].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+  shaderGroupCreateInfos[3].generalShader = VK_SHADER_UNUSED_KHR;
+  shaderGroupCreateInfos[3].closestHitShader = 3;
+  shaderGroupCreateInfos[3].anyHitShader = VK_SHADER_UNUSED_KHR;
+  shaderGroupCreateInfos[3].intersectionShader = VK_SHADER_UNUSED_KHR;
+  shaderGroupCreateInfos[3].pShaderGroupCaptureReplayHandle = NULL;
+
+  VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = { };
+  pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  pipelineLayoutCreateInfo.setLayoutCount = 2;
+  pipelineLayoutCreateInfo.pSetLayouts = rtx.rayTraceDescriptorSetLayouts;
+  pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
+
+
+  if (vkCreatePipelineLayout(vulkan_globals.device, &pipelineLayoutCreateInfo, NULL,
+      &rtx.rayTracePipelineLayout) != VK_SUCCESS) {
+    Sys_Error("vkCreatePipelineLayout failed!");
+  }
+
+  VkPipelineLibraryCreateInfoKHR pipelineLibraryCreateInfo = { };
+  pipelineLibraryCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LIBRARY_CREATE_INFO_KHR;
+  pipelineLibraryCreateInfo.pNext = NULL;
+  pipelineLibraryCreateInfo.libraryCount = 0;
+  pipelineLibraryCreateInfo.pLibraries = NULL;
+
+  VkRayTracingPipelineCreateInfoKHR rayPipelineCreateInfo = { };
+  rayPipelineCreateInfo.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
+  rayPipelineCreateInfo.pNext = NULL;
+  rayPipelineCreateInfo.flags = 0;
+  rayPipelineCreateInfo.stageCount = 4;
+  rayPipelineCreateInfo.pStages = shaderStages;
+  rayPipelineCreateInfo.groupCount = 4;
+  rayPipelineCreateInfo.pGroups = shaderGroupCreateInfos;
+  rayPipelineCreateInfo.maxPipelineRayRecursionDepth = 16;
+  rayPipelineCreateInfo.pLibraryInfo = &pipelineLibraryCreateInfo;
+  rayPipelineCreateInfo.pLibraryInterface = NULL;
+  rayPipelineCreateInfo.layout = rtx.rayTracePipelineLayout;
+  rayPipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+  rayPipelineCreateInfo.basePipelineIndex = -1;
+
+  if (pvkCreateRayTracingPipelinesKHR(vulkan_globals.device, VK_NULL_HANDLE, VK_NULL_HANDLE, 1,
+      &rayPipelineCreateInfo, NULL, &rtx.rayTracePipeline) != VK_SUCCESS) {
+    Sys_Error("pvkCreateRayTracingPipelinesKHR failed!");
+  }
+
+  Sys_Error("DONE 5");
+
+  vkDestroyShaderModule(vulkan_globals.device, rgenShaderModule, NULL);
+  vkDestroyShaderModule(vulkan_globals.device, rmissShaderModule, NULL);
+  vkDestroyShaderModule(vulkan_globals.device, rmissShadowShaderModule, NULL);
+  vkDestroyShaderModule(vulkan_globals.device, rchitShaderModule, NULL);
+
+  free(rgenFileBuffer);
+  free(rmissFileBuffer);
+  free(rmissShadowFileBuffer);
+  free(rchitFileBuffer);
+
 
 	vkDestroyShaderModule(vulkan_globals.device, showtris_frag_module, NULL);
 	vkDestroyShaderModule(vulkan_globals.device, showtris_vert_module, NULL);

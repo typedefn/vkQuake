@@ -696,3 +696,258 @@ void createTopLevelAccelerationStructure() {
   vkDestroyBuffer(vulkan_globals.device, scratchBuffer, NULL);
   vkFreeMemory(vulkan_globals.device, scratchBufferMemory, NULL);
 }
+
+byte* readFile(char *filename, size_t *filesize) {
+  FILE *rgenFile = fopen(filename, "rb");
+  fseek(rgenFile, 0, SEEK_END);
+  uint32_t rgenFileSize = ftell(rgenFile);
+  fseek(rgenFile, 0, SEEK_SET);
+  *filesize = rgenFileSize;
+  byte *rgenFileBuffer = (byte*) malloc(sizeof(byte*) * rgenFileSize);
+  fread(rgenFileBuffer, 1, rgenFileSize, rgenFile);
+  fclose(rgenFile);
+  return rgenFileBuffer;
+}
+
+
+void createDescriptorSets() {
+  rtx.rayTraceDescriptorSetLayouts = (VkDescriptorSetLayout*)malloc(sizeof(VkDescriptorSetLayout) * 2);
+
+  VkDescriptorPoolSize descriptorPoolSizes[4];
+  descriptorPoolSizes[0].type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+  descriptorPoolSizes[0].descriptorCount = 1;
+
+  descriptorPoolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  descriptorPoolSizes[1].descriptorCount = 1;
+
+  descriptorPoolSizes[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  descriptorPoolSizes[2].descriptorCount = 1;
+
+  descriptorPoolSizes[3].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  descriptorPoolSizes[3].descriptorCount = 4;
+
+  VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
+  descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  descriptorPoolCreateInfo.poolSizeCount = 4;
+  descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
+  descriptorPoolCreateInfo.maxSets = 2;
+
+  if (vkCreateDescriptorPool(vulkan_globals.device, &descriptorPoolCreateInfo, NULL, &rtx.descriptorPool) != VK_SUCCESS) {
+    Sys_Error("vkCreateDescriptorPool failed!");
+  }
+
+  {
+    VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[5];
+    descriptorSetLayoutBindings[0].binding = 0;
+    descriptorSetLayoutBindings[0].descriptorCount = 1;
+    descriptorSetLayoutBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+    descriptorSetLayoutBindings[0].pImmutableSamplers = NULL;
+    descriptorSetLayoutBindings[0].stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+    descriptorSetLayoutBindings[1].binding = 1;
+    descriptorSetLayoutBindings[1].descriptorCount = 1;
+    descriptorSetLayoutBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    descriptorSetLayoutBindings[1].pImmutableSamplers = NULL;
+    descriptorSetLayoutBindings[1].stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+    descriptorSetLayoutBindings[2].binding = 2;
+    descriptorSetLayoutBindings[2].descriptorCount = 1;
+    descriptorSetLayoutBindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorSetLayoutBindings[2].pImmutableSamplers = NULL;
+    descriptorSetLayoutBindings[2].stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+    descriptorSetLayoutBindings[3].binding = 3;
+    descriptorSetLayoutBindings[3].descriptorCount = 1;
+    descriptorSetLayoutBindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorSetLayoutBindings[3].pImmutableSamplers = NULL;
+    descriptorSetLayoutBindings[3].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+    descriptorSetLayoutBindings[4].binding = 4;
+    descriptorSetLayoutBindings[4].descriptorCount = 1;
+    descriptorSetLayoutBindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorSetLayoutBindings[4].pImmutableSamplers = NULL;
+    descriptorSetLayoutBindings[4].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+    VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+    descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    descriptorSetLayoutCreateInfo.bindingCount = 5;
+    descriptorSetLayoutCreateInfo.pBindings = descriptorSetLayoutBindings;
+
+    if (vkCreateDescriptorSetLayout(vulkan_globals.device, &descriptorSetLayoutCreateInfo, NULL, &rtx.rayTraceDescriptorSetLayouts[0]) != VK_SUCCESS) {
+      Sys_Error("vkCreateDescriptorSetLayout failed!");
+    }
+
+    VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
+    descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptorSetAllocateInfo.descriptorPool = rtx.descriptorPool;
+    descriptorSetAllocateInfo.descriptorSetCount = 1;
+    descriptorSetAllocateInfo.pSetLayouts = &rtx.rayTraceDescriptorSetLayouts[0];
+
+    if (vkAllocateDescriptorSets(vulkan_globals.device, &descriptorSetAllocateInfo, &rtx.rayTraceDescriptorSet) != VK_SUCCESS) {
+      Sys_Error("vkAllocateDescriptorSets failed!");
+    }
+
+    VkWriteDescriptorSet writeDescriptorSets[5];
+
+    VkWriteDescriptorSetAccelerationStructureKHR descriptorSetAccelerationStructure = {};
+    descriptorSetAccelerationStructure.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+    descriptorSetAccelerationStructure.pNext = NULL;
+    descriptorSetAccelerationStructure.accelerationStructureCount = 1;
+    descriptorSetAccelerationStructure.pAccelerationStructures = &rtx.topLevelAccelerationStructure;
+
+    writeDescriptorSets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSets[0].pNext = &descriptorSetAccelerationStructure;
+    writeDescriptorSets[0].dstSet = rtx.rayTraceDescriptorSet;
+    writeDescriptorSets[0].dstBinding = 0;
+    writeDescriptorSets[0].dstArrayElement = 0;
+    writeDescriptorSets[0].descriptorCount = 1;
+    writeDescriptorSets[0].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+    writeDescriptorSets[0].pImageInfo = NULL;
+    writeDescriptorSets[0].pBufferInfo = NULL;
+    writeDescriptorSets[0].pTexelBufferView = NULL;
+
+    VkDescriptorImageInfo imageInfo = {};
+    imageInfo.sampler = VK_DESCRIPTOR_TYPE_SAMPLER;
+    imageInfo.imageView = rtx.rayTraceImageView;
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    writeDescriptorSets[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSets[1].pNext = NULL;
+    writeDescriptorSets[1].dstSet = rtx.rayTraceDescriptorSet;
+    writeDescriptorSets[1].dstBinding = 1;
+    writeDescriptorSets[1].dstArrayElement = 0;
+    writeDescriptorSets[1].descriptorCount = 1;
+    writeDescriptorSets[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    writeDescriptorSets[1].pImageInfo = &imageInfo;
+    writeDescriptorSets[1].pBufferInfo = NULL;
+    writeDescriptorSets[1].pTexelBufferView = NULL;
+
+    VkDescriptorBufferInfo bufferInfo = {};
+    bufferInfo.buffer = rtx.uniformBuffer;
+    bufferInfo.offset = 0;
+    bufferInfo.range = VK_WHOLE_SIZE;
+
+    writeDescriptorSets[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSets[2].pNext = NULL;
+    writeDescriptorSets[2].dstSet = rtx.rayTraceDescriptorSet;
+    writeDescriptorSets[2].dstBinding = 2;
+    writeDescriptorSets[2].dstArrayElement = 0;
+    writeDescriptorSets[2].descriptorCount = 1;
+    writeDescriptorSets[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writeDescriptorSets[2].pImageInfo = NULL;
+    writeDescriptorSets[2].pBufferInfo = &bufferInfo;
+    writeDescriptorSets[2].pTexelBufferView = NULL;
+
+    VkDescriptorBufferInfo indexBufferInfo = {};
+    indexBufferInfo.buffer = rtx.indexBuffer;
+    indexBufferInfo.offset = 0;
+    indexBufferInfo.range = VK_WHOLE_SIZE;
+
+    writeDescriptorSets[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSets[3].pNext = NULL;
+    writeDescriptorSets[3].dstSet = rtx.rayTraceDescriptorSet;
+    writeDescriptorSets[3].dstBinding = 3;
+    writeDescriptorSets[3].dstArrayElement = 0;
+    writeDescriptorSets[3].descriptorCount = 1;
+    writeDescriptorSets[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writeDescriptorSets[3].pImageInfo = NULL;
+    writeDescriptorSets[3].pBufferInfo = &indexBufferInfo;
+    writeDescriptorSets[3].pTexelBufferView = NULL;
+
+    VkDescriptorBufferInfo vertexBufferInfo = {};
+    vertexBufferInfo.buffer = rtx.vertexPositionBuffer;
+    vertexBufferInfo.offset = 0;
+    vertexBufferInfo.range = VK_WHOLE_SIZE;
+
+    writeDescriptorSets[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSets[4].pNext = NULL;
+    writeDescriptorSets[4].dstSet = rtx.rayTraceDescriptorSet;
+    writeDescriptorSets[4].dstBinding = 4;
+    writeDescriptorSets[4].dstArrayElement = 0;
+    writeDescriptorSets[4].descriptorCount = 1;
+    writeDescriptorSets[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writeDescriptorSets[4].pImageInfo = NULL;
+    writeDescriptorSets[4].pBufferInfo = &vertexBufferInfo;
+    writeDescriptorSets[4].pTexelBufferView = NULL;
+
+    vkUpdateDescriptorSets(vulkan_globals.device, 5, writeDescriptorSets, 0, NULL);
+  }
+
+
+  {
+    VkDescriptorSetLayoutBinding descriptorSetLayoutBindings[2];
+    descriptorSetLayoutBindings[0].binding = 0;
+    descriptorSetLayoutBindings[0].descriptorCount = 1;
+    descriptorSetLayoutBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorSetLayoutBindings[0].pImmutableSamplers = NULL;
+    descriptorSetLayoutBindings[0].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+    descriptorSetLayoutBindings[1].binding = 1;
+    descriptorSetLayoutBindings[1].descriptorCount = 1;
+    descriptorSetLayoutBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorSetLayoutBindings[1].pImmutableSamplers = NULL;
+    descriptorSetLayoutBindings[1].stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+    VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+    descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    descriptorSetLayoutCreateInfo.bindingCount = 2;
+    descriptorSetLayoutCreateInfo.pBindings = descriptorSetLayoutBindings;
+
+    if (vkCreateDescriptorSetLayout(vulkan_globals.device, &descriptorSetLayoutCreateInfo, NULL, &rtx.rayTraceDescriptorSetLayouts[1]) != VK_SUCCESS) {
+      Sys_Error("vkCreateDescriptorSetLayout failed!");
+    }
+
+    VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
+    descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptorSetAllocateInfo.descriptorPool = rtx.descriptorPool;
+    descriptorSetAllocateInfo.descriptorSetCount = 1;
+    descriptorSetAllocateInfo.pSetLayouts = &rtx.rayTraceDescriptorSetLayouts[1];
+
+    if (vkAllocateDescriptorSets(vulkan_globals.device, &descriptorSetAllocateInfo, &rtx.materialDescriptorSet) != VK_SUCCESS) {
+      Sys_Error("vkAllocateDescriptorSets failed!");
+    }
+
+    VkWriteDescriptorSet writeDescriptorSets[2];
+
+    VkDescriptorBufferInfo materialIndexBufferInfo = {};
+    materialIndexBufferInfo.buffer =  rtx.materialIndexBuffer;
+    materialIndexBufferInfo.offset = 0;
+    materialIndexBufferInfo.range = VK_WHOLE_SIZE;
+
+    writeDescriptorSets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSets[0].pNext = NULL;
+    writeDescriptorSets[0].dstSet = rtx.materialDescriptorSet;
+    writeDescriptorSets[0].dstBinding = 0;
+    writeDescriptorSets[0].dstArrayElement = 0;
+    writeDescriptorSets[0].descriptorCount = 1;
+    writeDescriptorSets[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writeDescriptorSets[0].pImageInfo = NULL;
+    writeDescriptorSets[0].pBufferInfo = &materialIndexBufferInfo;
+    writeDescriptorSets[0].pTexelBufferView = NULL;
+
+    VkDescriptorBufferInfo materialBufferInfo = {};
+    materialBufferInfo.buffer = rtx.materialBuffer;
+    materialBufferInfo.offset = 0;
+    materialBufferInfo.range = VK_WHOLE_SIZE;
+
+    writeDescriptorSets[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSets[1].pNext = NULL;
+    writeDescriptorSets[1].dstSet = rtx.materialDescriptorSet;
+    writeDescriptorSets[1].dstBinding = 1;
+    writeDescriptorSets[1].dstArrayElement = 0;
+    writeDescriptorSets[1].descriptorCount = 1;
+    writeDescriptorSets[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writeDescriptorSets[1].pImageInfo = NULL;
+    writeDescriptorSets[1].pBufferInfo = &materialBufferInfo;
+    writeDescriptorSets[1].pTexelBufferView = NULL;
+
+    vkUpdateDescriptorSets(vulkan_globals.device, 2, writeDescriptorSets, 0, NULL);
+  }
+}
+
+
+
+void createUniformBuffer() {
+  VkDeviceSize bufferSize = sizeof(struct Camera);
+  createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &rtx.uniformBuffer, &rtx.uniformBufferMemory);
+}

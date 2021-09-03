@@ -7,6 +7,16 @@
 
 uint32_t queue_index;
 
+
+struct Camera {
+  float position[4];
+  float right[4];
+  float up[4];
+  float forward[4];
+
+  uint32_t frameCount;
+};
+
 typedef struct accel_khr_s {
   VkAccelerationStructureKHR accel;
   VkBuffer buffer;
@@ -28,6 +38,11 @@ typedef struct rtx_s {
   VkBuffer vertexPositionBuffer;
   VkCommandPool commandPool;
 
+  VkDescriptorSet materialDescriptorSet;
+  VkBuffer materialIndexBuffer;
+  VkDeviceMemory materialIndexBufferMemory;
+  VkBuffer materialBuffer;
+
   VkImageView rayTraceImageView;
   VkImage rayTraceImage;
   VkDeviceMemory rayTraceImageMemory;
@@ -39,6 +54,19 @@ typedef struct rtx_s {
   VkAccelerationStructureKHR topLevelAccelerationStructure;
   VkBuffer topLevelAccelerationStructureBuffer;
   VkDeviceMemory topLevelAccelerationStructureBufferMemory;
+
+  VkDescriptorSetLayout* rayTraceDescriptorSetLayouts;
+  VkDescriptorPool descriptorPool;
+  VkDescriptorSet rayTraceDescriptorSet;
+
+  VkPipelineLayout rayTracePipelineLayout;
+  VkPipeline rayTracePipeline;
+
+  VkBuffer indexBuffer;
+  VkDeviceMemory indexBufferMemory;
+
+  VkBuffer uniformBuffer;
+  VkDeviceMemory uniformBufferMemory;
 
 } rtx_t;
 
@@ -75,6 +103,9 @@ void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size, int c
 void createBuffer(VkDeviceSize size, VkBufferUsageFlags usageFlags,
     VkMemoryPropertyFlags propertyFlags, VkBuffer *buffer, VkDeviceMemory *bufferMemory);
 void createVertexBuffer(qmodel_t *m, const aliashdr_t *hdr);
+byte * readFile(char * filename, size_t * filesize);
+void createDescriptorSets();
+void createUniformBuffer();
 
 #endif
 
